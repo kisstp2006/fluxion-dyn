@@ -11,12 +11,11 @@
 //!   `table`     a whole struct of function pointers, filled in by field name
 //!
 //! Everything an operating system will not let you link against arrives this
-//! way. `d3d12.dll` is missing on Windows before 10, `libvulkan.so.1` comes
-//! from a GPU driver rather than the system, `opengl32.dll` exports the
-//! commands of 1997 and nothing since, and a program that imports any of those
-//! symbols the ordinary way fails to start rather than falling back. So the
-//! library is opened by name, every entry point is fetched by name, and the
-//! program decides for itself what a missing one means.
+//! way: `d3d12.dll` is missing before Windows 10, `libvulkan.so.1` comes from a
+//! GPU driver, `opengl32.dll` exports the commands of 1997 and nothing since.
+//! A program that imports any of those the ordinary way fails to start rather
+//! than falling back. So the library is opened by name, every entry point is
+//! fetched by name, and the program decides what a missing one means.
 //!
 //! ```zig
 //! const Entries = struct {
@@ -35,15 +34,12 @@
 //! **Optionality is in the type.** A plain function pointer must be found or
 //! loading fails and says which one was missing; an optional one may be absent
 //! and is left `null`, so the compiler makes the call site ask. That is the
-//! whole version policy, and it is why one table can describe an API across
-//! the versions of it a program is willing to run on.
+//! whole version policy, and why one table can describe an API across every
+//! version of it a program is willing to run on.
 //!
-//! **A resolver is anything that answers a name.** An open `Library`, a
-//! `wglGetProcAddress`, an `eglGetProcAddress`, a `vkGetInstanceProcAddr`
-//! holding the instance to dispatch on, a `Chain` that tries one and then
-//! another. `table.load` takes any of them, so where the entry points come
-//! from is a decision the calling program makes and this library never has to
-//! know.
+//! **A resolver is anything that answers a name**: an open `Library`, a
+//! `wglGetProcAddress`, a `vkGetInstanceProcAddr` holding its instance, a
+//! `Chain` that tries one and then another. `table.load` takes any of them.
 //!
 //! Nothing here allocates, and nothing here is generated: a table is an
 //! ordinary struct, and loading it is a comptime walk over its fields.

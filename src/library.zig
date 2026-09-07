@@ -2,14 +2,12 @@
 
 //! Opening a shared library at run time, and getting entry points out of it.
 //!
-//! A graphics API is not a library you link against. `d3d12.dll` arrived with
-//! Windows 10 and is simply absent before it; `libvulkan.so.1` is installed by
-//! a GPU driver and not by the system; `opengl32.dll` exports the commands of
-//! 1997 and nothing since. A program that imports any of those symbols the
-//! ordinary way does not start at all on a machine that is missing one - the
-//! system loader fails before `main`, with a message about an entry point and
-//! no way to fall back. So a program that wants to keep running asks at run
-//! time, and decides for itself what a missing entry point means.
+//! A graphics API is not a library you link against. `d3d12.dll` is absent
+//! before Windows 10, `libvulkan.so.1` comes from a GPU driver, `opengl32.dll`
+//! exports the commands of 1997 and nothing since. A program that imports any
+//! of those the ordinary way does not start at all where one is missing: the
+//! loader fails before `main`, with no way to fall back. So it asks at run
+//! time instead, and decides for itself what a missing entry point means.
 //!
 //! ```zig
 //! var lib = try Library.openSystem("vulkan-1.dll");
@@ -19,43 +17,32 @@
 //!     return error.NotAVulkanLoader;
 //! ```
 //!
-//! Four ways in, and the choice is about where the file is allowed to come
-//! from:
+//! Four ways in, and the choice is about where the file may come from:
 //!
 //!   `openSystem`  a bare name, from the system's own directories and nowhere
-//!                 else. What to use for `vulkan-1.dll`, `opengl32.dll`,
-//!                 `d3d12.dll` - anything that is part of the operating system.
+//!                 else. For `vulkan-1.dll`, `opengl32.dll`, `d3d12.dll`.
 //!   `open`        one name or path, searched however this platform searches.
-//!                 For a library that ships beside the program: ANGLE's
+//!                 For a library shipping beside the program: ANGLE's
 //!                 `libGLESv2.dll`, a MoltenVK inside an app bundle.
-//!   `openAny`     the first of a list that opens, which is how a platform
-//!                 with more than one name for the same library is handled.
+//!   `openAny`     the first of a list that opens.
 //!   `fromHandle`  a handle somebody else opened.
 //!
 //! **Why `openSystem` is not just `open` with a shorter name.** On Windows,
-//! `LoadLibrary("d3d12.dll")` searches the directory the program started from
-//! first. Anyone who can write a file next to the executable - an installer, a
-//! shared folder, a download that landed in the same place - can put their own
-//! `d3d12.dll` there and have it loaded into the process, with the process's
-//! privileges. This is old, it has a name (DLL planting), and the fix is one
-//! flag: `LOAD_LIBRARY_SEARCH_SYSTEM32` says to look in `System32` and stop.
-//! On POSIX the ordinary search already has that property - `dlopen` consults
-//! the configured search paths and never the calling program's directory - so
-//! there the two are the same call. What is the same on both is the rule:
-//! `openSystem` refuses a name with a path in it, because a path is what
-//! defeats the point.
+//! `LoadLibrary("d3d12.dll")` searches the program's own directory first, so
+//! anyone who can write a file next to the executable can have it loaded with
+//! the process's privileges. This is old, it has a name (DLL planting), and
+//! the fix is one flag: `LOAD_LIBRARY_SEARCH_SYSTEM32`. On POSIX `dlopen`
+//! already has that property. What is the same on both is the rule:
+//! `openSystem` refuses a name with a path in it.
 //!
 //! **A `Library` is itself a resolver.** It has a `get`, so `table.load(&api,
 //! &lib)` reads a whole table straight out of the export table, and `Chain`
-//! puts one behind a context's `getProcAddress` for the platform where that is
-//! not enough on its own.
+//! puts one behind a context's `getProcAddress`.
 //!
-//! **Where a platform has no run-time loading at all** - `wasm32`, and
-//! anything else `std.DynLib` does not cover - `backend` is `.none`, every
-//! entry point here returns `error.NotSupported`, and the rest of this library
-//! still compiles and works. That is deliberate: a program on such a platform
-//! gets its entry points from somewhere else entirely, and should not have to
-//! comptime its way around a library that refuses to build.
+//! **Where a platform has no run-time loading** - `wasm32`, and anything else
+//! `std.DynLib` does not cover - `backend` is `.none` and every entry point
+//! returns `error.NotSupported`, rather than refusing to build. A program
+//! there gets its entry points from somewhere else entirely.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -114,8 +101,7 @@ pub const OpenError = error{
     /// too long, or with a directory separator in it.
     InvalidName,
     /// Windows only: a path longer than this library converts to UTF-16 in.
-    /// Said rather than truncated, because a truncated path can name a real
-    /// file.
+    /// Said rather than truncated: a truncated path can name a real file.
     NameTooLong,
     /// This platform has no run-time library loading at all - see `backend`.
     NotSupported,
@@ -137,10 +123,9 @@ pub const max_path_len = 1024;
 /// only then `close`.
 pub const Library = struct {
     handle: Handle,
-    /// The name it opened under, for the times when which one matters -
-    /// `libMoltenVK.dylib` is a different answer from `libvulkan.dylib`. Kept
-    /// rather than copied, so a path built at run time has to outlive the
-    /// `Library`.
+    /// The name it opened under, for when which one matters - `libMoltenVK`
+    /// is a different answer from `libvulkan`. Kept rather than copied, so a
+    /// path built at run time has to outlive the `Library`.
     name: [:0]const u8,
 
     pub const Handle = switch (backend) {
@@ -178,16 +163,11 @@ pub const Library = struct {
     }
 
     /// Open a library that belongs to the operating system, by bare name, from
-    /// the system's own directories and nowhere else. See the module comment
-    /// for why the search path is worth caring about.
+    /// the system's own directories and nowhere else - see the module comment.
+    /// A name with a directory separator is `error.InvalidName` everywhere.
     ///
-    /// A name with a directory separator in it is `error.InvalidName` on every
-    /// platform, because a path is exactly what would reintroduce the search
-    /// this function exists to avoid.
-    ///
-    /// The operating system keeps one module per process and counts
-    /// references, so calling this twice for the same library is cheap and
-    /// gives the same handle. It also means every open needs its `close`.
+    /// The system keeps one module per process and counts references, so a
+    /// second open is cheap and gives the same handle - and needs its `close`.
     pub fn openSystem(name: [:0]const u8) OpenError!Library {
         if (name.len == 0 or name.len > max_name_len) return error.InvalidName;
         for (name) |char| {
@@ -200,10 +180,8 @@ pub const Library = struct {
                 const handle = try loadWide(name, search_system32);
                 return .{ .handle = handle, .name = name };
             },
-            // `dlopen` of a bare name - one with no slash in it - consults the
-            // configured search paths and never the calling program's own
-            // directory, which is the property the Windows flag has to be
-            // asked for.
+            // `dlopen` of a bare name already consults the configured search
+            // paths and never the program's own directory.
             .posix => {
                 const handle = std.DynLib.openZ(name.ptr) catch return error.LibraryNotFound;
                 return .{ .handle = handle, .name = name };
@@ -215,8 +193,7 @@ pub const Library = struct {
     /// flags this module does not offer, or a module already in the process.
     ///
     /// `close` frees it either way, so only wrap a handle whose reference this
-    /// `Library` is meant to own. A `GetModuleHandle` result is not one: it
-    /// adds no reference, so freeing it takes away somebody else's.
+    /// `Library` is meant to own. A `GetModuleHandle` result is not one.
     pub fn fromHandle(handle: Handle, name: [:0]const u8) Library {
         return .{ .handle = handle, .name = name };
     }
@@ -252,11 +229,9 @@ pub const Library = struct {
 
     /// One exported symbol as the type you say it is, or null.
     ///
-    /// Nothing checks `T` against what the library actually exports - there is
-    /// nothing to check it against - so a wrong signature here is a corrupt
-    /// stack later rather than an error, and worth reading twice. By name, and
-    /// never by ordinal: the ordinals in a system library are not a documented
-    /// interface and have moved between releases.
+    /// Nothing checks `T` against what the library exports, so a wrong
+    /// signature here is a corrupt stack later and worth reading twice. By
+    /// name, never by ordinal: ordinals move between releases.
     pub fn lookup(self: *Library, comptime T: type, symbol: [:0]const u8) ?T {
         const found = self.get(symbol.ptr) orelse return null;
         return @ptrCast(found);
@@ -279,13 +254,11 @@ pub const Library = struct {
 
 /// A context's `getProcAddress` first, a library's exports second.
 ///
-/// On Windows this is not an optimisation. `wglGetProcAddress` answers only
-/// for commands newer than OpenGL 1.1: ask it for `glClear`, `glViewport` or
-/// `glDrawArrays` - the ones every frame calls - and it returns null, because
-/// those are exported from `opengl32.dll` directly and the loader expects you
-/// to have linked them. So a program that asks only the context ends up with a
-/// table full of holes in the oldest and most-used commands, on the one
-/// platform where that happens.
+/// On Windows this is not an optimisation. `wglGetProcAddress` returns null
+/// for everything that was in OpenGL 1.1 - `glClear`, `glViewport`,
+/// `glDrawArrays`, the ones every frame calls - because those are exported
+/// from `opengl32.dll` directly. Asking only the context leaves a table full
+/// of holes in the oldest and most-used commands.
 ///
 /// ```zig
 /// var opengl32 = try Library.openSystem("opengl32.dll");
@@ -295,11 +268,9 @@ pub const Library = struct {
 /// try table.load(&api, &chain);
 /// ```
 ///
-/// Elsewhere the fallback is harmless and occasionally useful: GLX answers for
-/// everything it knows whether or not a context is current, and EGL is
-/// required to, so the chain simply never reaches its second link. Both links
-/// are optional, which is also how a program says "just the library" before it
-/// has a context, or "just the context" where the fallback is pointless.
+/// Elsewhere the fallback is harmless: GLX and EGL answer for everything they
+/// know, so the chain never reaches its second link. Both links are optional,
+/// which is how a program says "just the library" or "just the context".
 pub const Chain = struct {
     /// What the window system gave you: `wglGetProcAddress`,
     /// `glXGetProcAddressARB`, `eglGetProcAddress`.

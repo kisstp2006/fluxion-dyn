@@ -2,28 +2,23 @@
 
 //! Where a name becomes a function pointer.
 //!
-//! There are two ways an entry point is found at run time, and this module is
-//! the seam between them. Either the symbol is looked up in a shared library -
-//! `GetProcAddress`, `dlsym` - which is what `library.Library` does, or the
-//! API hands out its own commands through a function of its own:
-//! `wglGetProcAddress`, `eglGetProcAddress`, `vkGetInstanceProcAddr`.
+//! An entry point is found either by looking the symbol up in a shared library
+//! - `GetProcAddress`, `dlsym`, which is what `library.Library` does - or by
+//! asking a function the API hands out: `wglGetProcAddress`,
+//! `eglGetProcAddress`, `vkGetInstanceProcAddr`.
 //!
-//! A *resolver* is anything that answers the second kind of question. It is
-//! duck-typed on purpose, so that all three of these work with no adapter:
+//! A *resolver* is anything that answers the second kind of question, and it is
+//! duck-typed on purpose so that all of these work with no adapter:
 //!
-//!   * a plain `getProcAddress` function, or a pointer to one - which is what
-//!     GLFW, SDL, EGL and the platform itself hand back
-//!   * any value with a `get(name: [*:0]const u8) ?Proc` method - which is how
-//!     something that carries state joins in: an open `Library`, a fallback
-//!     `Chain`, a Vulkan resolver holding the instance to dispatch on
+//!   * a plain `getProcAddress` function, or a pointer to one
+//!   * any value with a `get(name: [*:0]const u8) ?Proc` method - an open
+//!     `Library`, a fallback `Chain`, a Vulkan resolver holding its instance
 //!   * a pointer to one of those
 //!
-//! Duck-typing rather than one interface type is what keeps the calling
-//! convention out of this library's hands. `wglGetProcAddress` is `stdcall` on
-//! 32-bit Windows, `eglGetProcAddress` is `cdecl`, and Vulkan on Android's
-//! 32-bit ARM is neither; because the resolver is passed as `anytype` and
-//! called directly, each of them is called exactly as it was declared, and
-//! this module never has to name a convention it might get wrong.
+//! Duck-typing rather than one interface type keeps the calling convention out
+//! of this library's hands: `wglGetProcAddress` is `stdcall` on 32-bit Windows
+//! and `eglGetProcAddress` is `cdecl`. Passed as `anytype` and called directly,
+//! each is called exactly as it was declared.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -32,20 +27,18 @@ const testing = std.testing;
 /// A function pointer of unknown signature, which is all any lookup promises
 /// to return.
 ///
-/// The convention written here is a placeholder. Nothing ever calls a `Proc`:
-/// each one is cast to its own field's type on the way into a table, and it is
-/// *that* declaration which carries the real signature and the real
-/// convention. Which is why the tables in a binding are worth reading twice - a
-/// wrong one here is a corrupt stack later, not a compile error.
+/// The convention written here is a placeholder: nothing ever calls a `Proc`.
+/// Each is cast to its field's type on the way into a table, and it is that
+/// declaration which carries the real signature - which is why the tables in a
+/// binding are worth reading twice.
 pub const Proc = *const fn () callconv(.c) void;
 
 /// The convention the platform's own entry points use: `stdcall` on Windows,
 /// the C one everywhere else.
 ///
-/// On 64-bit Windows `.winapi` and `.c` are the same convention, so the
-/// distinction only starts to matter on a 32-bit build - which is exactly when
-/// nobody is testing. Declare tables with this rather than `.c` when the API
-/// being loaded is the platform's own.
+/// On 64-bit Windows the two are the same, so this only starts to matter on a
+/// 32-bit build - which is exactly when nobody is testing. Declare tables with
+/// it rather than `.c` when the API being loaded is the platform's own.
 pub const system: std.builtin.CallingConvention = if (builtin.os.tag == .windows)
     .winapi
 else
@@ -55,19 +48,15 @@ else
 /// `glXGetProcAddressARB`, `eglGetProcAddress`, `glfwGetProcAddress`,
 /// `SDL_GL_GetProcAddress`.
 ///
-/// A convenience, not a requirement. A resolver need not have this exact type -
-/// see the module comment - so a `getProcAddress` that takes an extra handle,
-/// or uses a convention of its own, is passed as it is rather than cast to fit.
+/// A convenience, not a requirement - see the module comment. One that takes
+/// an extra handle, or uses a convention of its own, is passed as it is.
 pub const GetProcAddress = *const fn (name: [*:0]const u8) callconv(system) ?Proc;
 
 /// Ask one resolver for one name, or null if it has not got it.
 ///
-/// A function is called; a value with a `get` method has that called. This is
-/// the only place either happens, so a resolver that is not one of those shapes
-/// fails here, at compile time, with a message that names the type.
-///
-/// The `get` method has to be `pub`: it is called from this file rather than
-/// from the one that declared it.
+/// A function is called; a value with a `get` method has that called. The `get`
+/// has to be `pub`, since it is called from here. Anything that is neither
+/// shape fails at compile time with a message naming the type.
 pub fn get(from: anytype, name: [:0]const u8) ?Proc {
     const From = @TypeOf(from);
     const returned = switch (@typeInfo(From)) {

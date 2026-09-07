@@ -19,35 +19,28 @@
 //! try load(&api, getProcAddress);
 //! ```
 //!
-//! which asks for `glClear`, `glClearColor` and `glBindVertexArray`. The
-//! struct is both the declaration and the list of what to fetch, so there is no
-//! second list to fall out of step with the first, and nothing is generated and
-//! nothing is registered: the loading is a comptime walk over the fields.
+//! which asks for `glClear`, `glClearColor` and `glBindVertexArray`. The struct
+//! is both the declaration and the list of what to fetch, so there is no second
+//! list to fall out of step with it, and nothing is generated: loading is a
+//! comptime walk over the fields.
 //!
 //! **Optionality is in the type, and that is the whole version policy.** A
-//! `*const fn ...` field is required: if the implementation has not got it,
-//! loading fails and says which one. A `?*const fn ...` field is optional: if
-//! the implementation has not got it the field is `null`, loading carries on,
-//! and the compiler makes the call site unwrap it - which is the check for
-//! "does this driver have compute shaders?" happening exactly where the answer
-//! matters.
+//! `*const fn ...` field is required and loading fails naming it; a
+//! `?*const fn ...` field may be absent, is left `null`, and the compiler makes
+//! the call site unwrap it - which puts "does this driver have compute
+//! shaders?" exactly where the answer matters.
 //!
 //! **A field may also be `*const anyopaque`**, which says "this entry point
-//! exists and this program does not describe how to call it". Whether an entry
-//! point is present is worth knowing on its own - it is one way to tell one
-//! version of an operating system from another - and writing out a signature
-//! nobody calls is a way to get one wrong.
+//! exists and this program does not describe how to call it". Presence alone is
+//! worth knowing, and a signature nobody calls is a way to get one wrong.
 //!
-//! **Three names, in order.** A field is looked up under the name derived from
-//! it, then under any `aliases` the table declares for it, then under the
-//! derived name with each of `Naming.suffixes` on the end. Specific before
-//! blanket: an alias is a statement about one entry point, a suffix list is a
-//! policy for all of them.
+//! **Three names, in order:** the name derived from the field, then any
+//! `aliases` the table declares for it, then the derived name with each of
+//! `Naming.suffixes` on the end. Specific before blanket.
 //!
 //! Where the entry points come from is `resolver`'s business, so the same call
-//! loads a table out of an open `library.Library`, out of a
-//! `wglGetProcAddress`, or out of a `vkGetInstanceProcAddr` holding the
-//! instance to dispatch on.
+//! loads out of a `library.Library`, a `wglGetProcAddress`, or a
+//! `vkGetInstanceProcAddr` holding its instance.
 
 const std = @import("std");
 const testing = std.testing;
@@ -95,10 +88,8 @@ pub const Naming = struct {
     /// Empty by default, and worth leaving that way unless you know the
     /// extension you are naming. An extension entry point is usually the same
     /// function under an older name, but not always - `glBindFramebufferEXT`
-    /// belongs to a different object model than core `glBindFramebuffer`, and
-    /// a loader that quietly substitutes one for the other produces a program
-    /// that runs and draws nothing. Name the suffix where you have checked
-    /// that the substitution holds:
+    /// belongs to a different object model than `glBindFramebuffer`, and
+    /// substituting one for the other produces a program that draws nothing:
     ///
     /// ```zig
     /// // Vertex arrays on an ES 2.0 context, where they are an extension.
@@ -143,8 +134,8 @@ pub const Status = struct {
 ///
 /// Where the entry points come from a context rather than a library, that
 /// context has to be current on the calling thread already: without one, some
-/// drivers return null for everything and others return addresses that belong
-/// to a context you are not using.
+/// drivers return null and others return addresses for a context you are not
+/// using.
 pub fn load(table: anytype, from: anytype) Error!void {
     return loadWith(table, from, namingOf(Pointee(@TypeOf(table))));
 }
@@ -156,11 +147,9 @@ pub fn loadWith(table: anytype, from: anytype, comptime naming: Naming) Error!vo
 
 /// Fill `table` and report, rather than fail.
 ///
-/// Every field is attempted, including the ones after a required entry point
-/// that was missing, so the counts describe the whole table and not just the
-/// part before the first problem. Use this where a missing entry point is
-/// something to work around or to print, and for the line that belongs in a
-/// startup log.
+/// Every field is attempted, including those after a missing required one, so
+/// the counts describe the whole table. Use it where a missing entry point is
+/// something to work around or to print in a startup log.
 pub fn tryLoad(table: anytype, from: anytype, comptime naming: Naming) Status {
     const Table = Pointee(@TypeOf(table));
     comptime validate(Table);
@@ -207,11 +196,8 @@ pub fn bindWith(comptime Table: type, from: anytype, comptime naming: Naming) Er
 }
 
 /// The name of the first required entry of `Table` that `from` has not got, or
-/// null if it has them all.
-///
-/// For turning a failure into a message that says what is actually wrong:
-/// "this driver has no vkCreateInstance" is worth printing, "SymbolNotFound"
-/// is not.
+/// null if it has them all. "This driver has no vkCreateInstance" is worth
+/// printing; "SymbolNotFound" is not.
 pub fn firstMissing(comptime Table: type, from: anytype) ?[:0]const u8 {
     return firstMissingWith(Table, from, namingOf(Table));
 }
@@ -333,9 +319,9 @@ pub fn optionalCount(comptime Table: type) usize {
 /// ```
 ///
 /// Which is what a promoted extension looks like: the same function under two
-/// names, and which one an implementation answers to depends on how old it is.
-/// An alias is written out in full, because the whole point of one is that it
-/// is not what the derived name would be.
+/// names, and which one an implementation answers to depends on its age. An
+/// alias is written out in full, since the point of one is that it is not what
+/// the derived name would be.
 fn candidatesFor(
     comptime Table: type,
     comptime field: []const u8,

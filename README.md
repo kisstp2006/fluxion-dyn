@@ -9,12 +9,11 @@ of function pointers. For Zig 0.16.
 | `library` | Opening the platform's shared libraries — by system name, by path, or the first of a list that opens — and taking one symbol out. Windows, POSIX, and a graceful nothing where the platform has neither. |
 | `table` | A whole struct of function pointers, filled in by field name, where the field's type says whether the entry point is allowed to be missing. |
 
-Everything an operating system will not let you link against arrives this way.
-`d3d12.dll` is missing on Windows before 10; `libvulkan.so.1` comes from a GPU
-driver rather than from the system; `opengl32.dll` exports the commands of 1997
-and nothing since. A program that imports any of those symbols the ordinary way
-does not start at all on a machine that is missing one — the loader fails before
-`main`, with a message about an entry point and no way to fall back.
+Everything an operating system will not let you link against arrives this way:
+`d3d12.dll` is missing before Windows 10, `libvulkan.so.1` comes from a GPU
+driver, `opengl32.dll` exports the commands of 1997 and nothing since. A program
+that imports any of those the ordinary way does not start at all where one is
+missing — the loader fails before `main`, with no way to fall back.
 
 So the library is opened by name, every entry point is fetched by name, and the
 program decides for itself what a missing one means.
@@ -100,18 +99,14 @@ var borrowed = dyn.Library.fromHandle(handle, "already open");
 ```
 
 **`openSystem` is not just `open` with a shorter name.** On Windows,
-`LoadLibrary("d3d12.dll")` searches the directory the program started from
-first. Anyone who can write a file next to the executable — an installer, a
-shared folder, a download that landed in the same place — can put their own
-`d3d12.dll` there and have it loaded into the process, with the process's
-privileges. This is old, it has a name (DLL planting), and the fix is one flag:
-`LOAD_LIBRARY_SEARCH_SYSTEM32` says to look in `System32` and stop.
+`LoadLibrary("d3d12.dll")` searches the program's own directory first, so anyone
+who can write a file next to the executable can have their `d3d12.dll` loaded
+with the process's privileges. This is old, it has a name (DLL planting), and
+the fix is one flag: `LOAD_LIBRARY_SEARCH_SYSTEM32`.
 
-On POSIX the ordinary search already has that property — `dlopen` consults the
-configured search paths and never the calling program's directory — so there the
-two are the same call. What is the same on both is the rule: `openSystem`
-refuses a name with a path in it on every platform, because a path is what
-defeats the point.
+On POSIX `dlopen` already has that property, so there the two are the same call.
+What is the same on both is the rule: `openSystem` refuses a name with a path in
+it on every platform.
 
 ```zig
 try dyn.openSystem("C:\\Windows\\System32\\kernel32.dll");  // error.InvalidName
