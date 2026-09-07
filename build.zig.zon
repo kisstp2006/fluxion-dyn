@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: CC0-1.0
+
+.{
+    .name = .fluxion_dyn,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.16.0",
+    .fingerprint = 0x94758aab11bc3ce4,
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "examples",
+        "README.md",
+    },
+}
